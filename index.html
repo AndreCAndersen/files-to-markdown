@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Drag and Drop Code Formatter</title>
+<style>
+  body {
+    background: #1e1e1e;
+    color: #ddd;
+    font-family: sans-serif;
+    margin: 20px;
+    padding: 0;
+  }
+
+  h1, #dropzone, .controls, #file-list {
+    user-select: none;
+  }
+
+  h1 {
+    margin-bottom: 20px;
+  }
+
+  #file-list {
+    max-width: 680px;
+    margin: 0 0 20px 0;
+    font-size: initial;
+  }
+
+  #file-list ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  #file-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #2e2e2e;
+    margin-bottom: 5px;
+    padding: 10px;
+    border-radius: 4px;
+  }
+
+  #file-list li span {
+    font-size: 1em;
+    color: #ccc;
+  }
+
+  #file-list li button.remove-btn {
+    font-size: 0.9em;
+    padding: 3px 8px;
+    background: #444;
+    border: none;
+    color: #ddd;
+    cursor: pointer;
+    border-radius: 3px;
+    user-select: none;
+  }
+
+  #file-list li button.remove-btn:hover {
+    background: #666;
+  }
+
+  #dropzone {
+    border: 2px dashed #555;
+    padding: 40px;
+    color: #999;
+    max-width: 600px;
+    margin: 0;       
+    text-align: center;
+  }
+
+  #output {
+    margin-top: 20px;
+    font-family: monospace;
+    user-select: text;
+    line-height: 1.5;
+    max-width: 680px;
+  }
+
+  .file-block {
+    margin-bottom: 20px;
+    padding: 20px;
+    border-radius: 5px;
+    white-space: pre-wrap;
+    position: relative;
+  }
+
+  /* The remove button for the file-block: no text content, only a background icon. */
+  .file-block .remove-btn {
+    background: #444 url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" fill="%23ddd" viewBox="0 0 24 24"><path d="M18.3 5.7c-.4-.4-1-.4-1.4 0L12 10.6 7.1 5.7c-.4-.4-1-.4-1.4 0s-.4 1 0 1.4l4.9 4.9-4.9 4.9c-.4.4-.4 1 0 1.4.4.4 1 .4 1.4 0l4.9-4.9 4.9 4.9c.4.4 1 .4 1.4 0 .4-.4.4-1 0-1.4L13.4 12l4.9-4.9c.4-.4.4-1 0-1.4z"/></svg>') no-repeat center center;
+    background-size: 10px 10px;
+    border: none;
+    cursor: pointer;
+    font-size: 0.8em;
+    padding: 5px 10px;
+    border-radius: 3px;
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    user-select: none; /* Prevent text selection from here */
+  }
+
+  .file-block .remove-btn:hover {
+    background-color: #666;
+  }
+
+</style>
+</head>
+<body>
+<h1>Drag and Drop Code/Text Files</h1>
+<div id="file-list">
+  <ul id="fileListUl"></ul>
+</div>
+<div id="dropzone">
+  Drop your files here
+</div>
+<div id="output"></div>
+
+<script>
+  const dropzone = document.getElementById('dropzone');
+  const output = document.getElementById('output');
+  const fileListUl = document.getElementById('fileListUl');
+
+  let fileCount = 0;
+  const fileBlocks = {}; 
+  const colors = ['#2e2e2e', '#3a3a3a'];
+
+  dropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropzone.style.borderColor = '#999';
+  });
+
+  dropzone.addEventListener('dragleave', () => {
+    dropzone.style.borderColor = '#555';
+  });
+
+  dropzone.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    dropzone.style.borderColor = '#555';
+
+    const files = e.dataTransfer.files;
+    if (!files.length) return;
+
+    for (const file of files) {
+      const text = await file.text();
+      const fileName = file.webkitRelativePath || file.name;
+      const extension = fileName.split('.').pop().toLowerCase();
+      const langMap = {
+        'py': 'python',
+        'js': 'javascript',
+        'ts': 'typescript',
+        'java': 'java',
+        'c': 'c',
+        'cpp': 'cpp',
+        'cs': 'csharp',
+        'html': 'html',
+        'css': 'css',
+        'json': 'json',
+        'md': 'md',
+        'sh': 'bash',
+        'bat': 'batch'
+      };
+      const lang = langMap[extension] || '';
+      const fileId = ++fileCount;
+
+      // Create file block
+      const fileBlock = document.createElement('div');
+      fileBlock.className = 'file-block';
+      fileBlock.style.background = colors[(fileId - 1) % colors.length];
+
+      const removeBlockBtn = document.createElement('button');
+      removeBlockBtn.className = 'remove-btn';
+      removeBlockBtn.addEventListener('click', () => removeFile(fileId));
+
+      const contentText = 
+`# ${fileName}
+
+\`\`\`${lang}
+${text}
+\`\`\``;
+
+      const textNode = document.createTextNode(contentText);
+      fileBlock.appendChild(textNode);
+      fileBlock.appendChild(removeBlockBtn);
+
+      output.appendChild(fileBlock);
+
+      fileBlocks[fileId] = { fileBlock, fileName };
+      addFileToList(fileId, fileName);
+    }
+  });
+
+  function addFileToList(fileId, fileName) {
+    const li = document.createElement('li');
+    const span = document.createElement('span');
+    span.textContent = fileName;
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'remove-btn';
+    removeBtn.textContent = 'X';
+    removeBtn.addEventListener('click', () => removeFile(fileId));
+
+    li.appendChild(span);
+    li.appendChild(removeBtn);
+    li.dataset.fileId = fileId;
+    fileListUl.appendChild(li);
+  }
+
+  function removeFile(fileId) {
+    const info = fileBlocks[fileId];
+    if (info) {
+      info.fileBlock.remove();
+      delete fileBlocks[fileId];
+    }
+
+    const li = fileListUl.querySelector(`li[data-file-id="${fileId}"]`);
+    if (li) li.remove();
+  }
+</script>
+</body>
+</html>
