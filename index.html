@@ -158,20 +158,31 @@
     e.preventDefault();
     dropzone.style.borderColor = '#555';
 
-    const items = e.dataTransfer.items;
+    const items = Array.from(e.dataTransfer.items);
     if (!items.length) return;
 
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].getAsFileSystemHandle) {
-        const handle = await items[i].getAsFileSystemHandle();
-        if (handle && handle.kind === 'file') {
-          fileHandles.push(handle);
+    // Process all items asynchronously first
+    const newHandles = await Promise.all(items.map(async (item) => {
+      try {
+        if (item.getAsFileSystemHandle) {
+          const handle = await item.getAsFileSystemHandle();
+          if (handle && handle.kind === 'file') return handle;
         }
-      } else {
-        const file = items[i].getAsFile();
-        fileHandles.push({ getFile: async () => file, name: file.name });
+      } catch (err) {
+        console.error("Error getting file handle:", err);
       }
-    }
+      // Fallback to just a File
+      const file = item.getAsFile();
+      if (file) {
+        return { getFile: async () => file, name: file.name };
+      }
+      return null;
+    }));
+
+    // Filter out any nulls
+    const validHandles = newHandles.filter(h => h);
+    fileHandles.push(...validHandles);
+
     refreshBtn.disabled = false;
     await processFiles();
   });
@@ -191,7 +202,6 @@
       }
     }
 
-    // Process only newly added files if not refresh, else reprocess all in fileHandles
     for (let i = fileCount; i < fileHandles.length; i++) {
       const handle = fileHandles[i];
       const file = await handle.getFile();
@@ -261,7 +271,6 @@ ${text}
     const info = fileBlocks[fileId];
     if (info) {
       info.fileBlock.remove();
-      // Remove this file from fileHandles so it won't reappear on refresh
       fileHandles = fileHandles.filter((h) => h !== info.handle);
       delete fileBlocks[fileId];
     }
