@@ -88,7 +88,6 @@
     position: relative;
   }
 
-  /* The remove button for the file-block: no text content, only a background icon. */
   .file-block .remove-btn {
     background: #444 url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" fill="%23ddd" viewBox="0 0 24 24"><path d="M18.3 5.7c-.4-.4-1-.4-1.4 0L12 10.6 7.1 5.7c-.4-.4-1-.4-1.4 0s-.4 1 0 1.4l4.9 4.9-4.9 4.9c-.4.4-.4 1 0 1.4.4.4 1 .4 1.4 0l4.9-4.9 4.9 4.9c.4.4 1 .4 1.4 0 .4-.4.4-1 0-1.4L13.4 12l4.9-4.9c.4-.4.4-1 0-1.4z"/></svg>') no-repeat center center;
     background-size: 10px 10px;
@@ -100,17 +99,33 @@
     position: absolute;
     top: 10px;
     right: 10px;
-    user-select: none; /* Prevent text selection from here */
+    user-select: none;
   }
 
   .file-block .remove-btn:hover {
     background-color: #666;
   }
 
+  #refreshBtn {
+    padding: 5px 10px;
+    background: #444;
+    border: none;
+    color: #ddd;
+    cursor: pointer;
+    border-radius: 3px;
+    user-select: none;
+    margin-bottom: 20px;
+  }
+
+  #refreshBtn:hover {
+    background: #666;
+  }
+
 </style>
 </head>
 <body>
 <h1>Drag and Drop Code/Text Files</h1>
+<button id="refreshBtn" disabled>Refresh</button>
 <div id="file-list">
   <ul id="fileListUl"></ul>
 </div>
@@ -123,10 +138,12 @@
   const dropzone = document.getElementById('dropzone');
   const output = document.getElementById('output');
   const fileListUl = document.getElementById('fileListUl');
+  const refreshBtn = document.getElementById('refreshBtn');
 
   let fileCount = 0;
-  const fileBlocks = {}; 
+  const fileBlocks = {};
   const colors = ['#2e2e2e', '#3a3a3a'];
+  let fileHandles = []; // Store FileSystemFileHandles or fallback objects
 
   dropzone.addEventListener('dragover', (e) => {
     e.preventDefault();
@@ -141,12 +158,45 @@
     e.preventDefault();
     dropzone.style.borderColor = '#555';
 
-    const files = e.dataTransfer.files;
-    if (!files.length) return;
+    const items = e.dataTransfer.items;
+    if (!items.length) return;
 
-    for (const file of files) {
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].getAsFileSystemHandle) {
+        const handle = await items[i].getAsFileSystemHandle();
+        if (handle && handle.kind === 'file') {
+          fileHandles.push(handle);
+        }
+      } else {
+        const file = items[i].getAsFile();
+        fileHandles.push({ getFile: async () => file, name: file.name });
+      }
+    }
+    refreshBtn.disabled = false;
+    await processFiles();
+  });
+
+  refreshBtn.addEventListener('click', async () => {
+    await processFiles(true);
+  });
+
+  async function processFiles(isRefresh) {
+    if (isRefresh) {
+      // Clear existing blocks
+      output.innerHTML = '';
+      fileListUl.innerHTML = '';
+      fileCount = 0;
+      for (const key in fileBlocks) {
+        delete fileBlocks[key];
+      }
+    }
+
+    // Process only newly added files if not refresh, else reprocess all in fileHandles
+    for (let i = fileCount; i < fileHandles.length; i++) {
+      const handle = fileHandles[i];
+      const file = await handle.getFile();
+      const fileName = file.webkitRelativePath || file.name || handle.name || 'Unknown';
       const text = await file.text();
-      const fileName = file.webkitRelativePath || file.name;
       const extension = fileName.split('.').pop().toLowerCase();
       const langMap = {
         'py': 'python',
@@ -166,7 +216,6 @@
       const lang = langMap[extension] || '';
       const fileId = ++fileCount;
 
-      // Create file block
       const fileBlock = document.createElement('div');
       fileBlock.className = 'file-block';
       fileBlock.style.background = colors[(fileId - 1) % colors.length];
@@ -175,7 +224,7 @@
       removeBlockBtn.className = 'remove-btn';
       removeBlockBtn.addEventListener('click', () => removeFile(fileId));
 
-      const contentText = 
+      const contentText =
 `# ${fileName}
 
 \`\`\`${lang}
@@ -185,13 +234,12 @@ ${text}
       const textNode = document.createTextNode(contentText);
       fileBlock.appendChild(textNode);
       fileBlock.appendChild(removeBlockBtn);
-
       output.appendChild(fileBlock);
 
-      fileBlocks[fileId] = { fileBlock, fileName };
+      fileBlocks[fileId] = { fileBlock, fileName, handle };
       addFileToList(fileId, fileName);
     }
-  });
+  }
 
   function addFileToList(fileId, fileName) {
     const li = document.createElement('li');
@@ -213,6 +261,8 @@ ${text}
     const info = fileBlocks[fileId];
     if (info) {
       info.fileBlock.remove();
+      // Remove this file from fileHandles so it won't reappear on refresh
+      fileHandles = fileHandles.filter((h) => h !== info.handle);
       delete fileBlocks[fileId];
     }
 
