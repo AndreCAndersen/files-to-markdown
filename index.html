@@ -143,7 +143,12 @@
   let fileCount = 0;
   const fileBlocks = {};
   const colors = ['#2e2e2e', '#3a3a3a'];
-  let fileHandles = []; // Store FileSystemFileHandles or fallback objects
+  let fileHandles = [];
+
+  // A simple ID generator
+  function generateId() {
+    return 'id-' + Math.random().toString(36).substr(2, 9);
+  }
 
   dropzone.addEventListener('dragover', (e) => {
     e.preventDefault();
@@ -161,49 +166,45 @@
     const items = Array.from(e.dataTransfer.items);
     if (!items.length) return;
 
-    // Process all items asynchronously first
     const newHandles = await Promise.all(items.map(async (item) => {
       try {
         if (item.getAsFileSystemHandle) {
           const handle = await item.getAsFileSystemHandle();
-          if (handle && handle.kind === 'file') return handle;
+          if (handle && handle.kind === 'file') {
+            return {handle, id: generateId()};
+          }
         }
       } catch (err) {
         console.error("Error getting file handle:", err);
       }
-      // Fallback to just a File
       const file = item.getAsFile();
       if (file) {
-        return { getFile: async () => file, name: file.name };
+        return {handle: {getFile: async () => file, name: file.name}, id: generateId()};
       }
       return null;
     }));
 
-    // Filter out any nulls
-    const validHandles = newHandles.filter(h => h);
-    fileHandles.push(...validHandles);
+    const valid = newHandles.filter(h => h);
+    fileHandles.push(...valid);
 
     refreshBtn.disabled = false;
     await processFiles();
   });
 
   refreshBtn.addEventListener('click', async () => {
-    await processFiles(true);
+    await processFiles();
   });
 
-  async function processFiles(isRefresh) {
-    if (isRefresh) {
-      // Clear existing blocks
-      output.innerHTML = '';
-      fileListUl.innerHTML = '';
-      fileCount = 0;
-      for (const key in fileBlocks) {
-        delete fileBlocks[key];
-      }
+  async function processFiles() {
+    output.innerHTML = '';
+    fileListUl.innerHTML = '';
+    fileCount = 0;
+    for (const key in fileBlocks) {
+      delete fileBlocks[key];
     }
 
     for (let i = fileCount; i < fileHandles.length; i++) {
-      const handle = fileHandles[i];
+      const {handle, id} = fileHandles[i];
       const file = await handle.getFile();
       const fileName = file.webkitRelativePath || file.name || handle.name || 'Unknown';
       const text = await file.text();
@@ -246,7 +247,7 @@ ${text}
       fileBlock.appendChild(removeBlockBtn);
       output.appendChild(fileBlock);
 
-      fileBlocks[fileId] = { fileBlock, fileName, handle };
+      fileBlocks[fileId] = { fileBlock, fileName, id };
       addFileToList(fileId, fileName);
     }
   }
@@ -271,7 +272,8 @@ ${text}
     const info = fileBlocks[fileId];
     if (info) {
       info.fileBlock.remove();
-      fileHandles = fileHandles.filter((h) => h !== info.handle);
+      // Remove from fileHandles by matching the unique id
+      fileHandles = fileHandles.filter(h => h.id !== info.id);
       delete fileBlocks[fileId];
     }
 
